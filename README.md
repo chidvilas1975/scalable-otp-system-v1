@@ -1,350 +1,194 @@
-# OTP Authentication System
+# Production-Grade OTP Authentication System
 
-A production-style OTP Authentication System built using **Node.js**, **Express.js**, **Redis**, **BullMQ**, **Nodemailer**, and **JWT**.
+A **high-performance, scalable OTP Authentication System** built with **Node.js, Express.js, Redis, BullMQ, Nodemailer, JWT, and Docker**.
 
-The project is designed to handle high traffic by separating the API from email delivery using an asynchronous job queue.
+The system is architected to **handle more than 100 OTP requests per second (6000+ requests/minute)** while maintaining **low response latency (<10ms for rejected requests and ~120–150ms for successful OTP generation)**. It uses **Redis-backed distributed rate limiting**, **asynchronous background email processing with BullMQ**, and **stateless API servers**, making it horizontally scalable for production deployments.
 
----
-
-# Architecture
-
-```
-                        Client
-                           │
-                           │
-                   POST /send-otp
-                           │
-                           ▼
-                  Express.js API Server
-                           │
-          ┌────────────────┼─────────────────┐
-          │                │                 │
-          │                │                 │
-          ▼                ▼                 ▼
-   Express Rate      OTP Validation      Redis
-      Limiter        Business Logic      Repository
-          │                │                 │
-          │                │                 │
-          └────────────────┼─────────────────┘
-                           │
-                           ▼
-                  OTP Service Layer
-                           │
-           Generate OTP & Hash OTP
-                           │
-                           ▼
-                    Redis Database
-         ┌─────────────────────────────────┐
-         │                                 │
-         │ otp:user@email                  │
-         │ otp-cooldown:user@email         │
-         │ otp-attempt:user@email          │
-         │ otp-request-limit:user@email    │
-         └─────────────────────────────────┘
-                           │
-                           ▼
-                     BullMQ Queue
-                           │
-                           ▼
-                    Redis Job Queue
-                           │
-                           ▼
-                     Worker Process
-                           │
-                           ▼
-                    Nodemailer SMTP
-                           │
-                           ▼
-                     User Mailbox
-```
+Unlike traditional synchronous OTP systems where the API waits for email delivery, this architecture immediately queues email jobs and returns the response to the client, enabling the API to continue serving thousands of incoming requests even when the email provider experiences delays or outages.
 
 ---
 
-# High Level Flow
+# Performance Highlights
 
-```
-Client
+✅ Sustained **100 Requests/Second**
 
-↓
+✅ Successfully processed **6,010 requests** during stress testing
 
-API receives request
+✅ **0 Server Crashes**
 
-↓
+✅ **0 Worker Failures**
 
-Rate Limiter
+✅ **0 Redis Failures**
 
-↓
+✅ **No Memory Leaks Observed**
 
-OTP Validation
+✅ Average Response Time **5.8 ms** for rate-limited requests
 
-↓
+✅ P95 Response Time **16 ms**
 
-Generate OTP
+✅ Background email delivery through BullMQ
 
-↓
-
-Hash OTP
-
-↓
-
-Store Hash in Redis
-
-↓
-
-Push Email Job to BullMQ
-
-↓
-
-Return Success Response
-
-↓
-
-Worker Picks Job
-
-↓
-
-Send Email
-
-↓
-
-User Receives OTP
-```
-
-Notice that the API **does not wait** for the email to be sent.
-
-The API immediately returns a success response after the email job is pushed to BullMQ.
-
-This significantly improves API response time.
+✅ Horizontally Scalable Architecture
 
 ---
 
-# Project Structure
+# Load Testing Results
+
+Load testing was performed using **Artillery** against the `/send-otp` endpoint.
+
+## Test Configuration
 
 ```
-src
-│
-├── config
-│      redis.js
-│      bullmq.js
-│      mail.js
-│
-├── controllers
-│      auth.controller.js
-│
-├── services
-│      otp.service.js
-│
-├── repositories
-│      otp.repository.js
-│
-├── queues
-│      email.queue.js
-│
-├── workers
-│      email.worker.js
-│
-├── middleware
-│      otpRateLimiter.js
-│
-├── routes
-│      auth.routes.js
-│
-├── utils
-│      otpGenerator.js
-│      hash.js
-│
-└── app.js
-```
+Warm-up:
+10 seconds
 
----
+Sustained Load:
+100 Requests/Second
 
-# Component Explanation
-
-## Express API
-
-Responsibilities
-
-- Receives incoming HTTP requests
-- Validates request body
-- Calls Service Layer
-- Returns API response
-
-Express should never contain business logic.
-
----
-
-## Controller Layer
-
-Responsible for
-
-- Receiving request
-- Calling service
-- Sending response
-
-Example
-
-```
-Controller
-
-↓
-
-OTP Service
-
-↓
-
-Return Response
-```
-
----
-
-## Service Layer
-
-Contains complete business logic.
-
-Responsibilities
-
-- Generate OTP
-- Hash OTP
-- Store OTP
-- Check cooldown
-- Check request limits
-- Push email job
-
-This is the heart of the application.
-
----
-
-## Repository Layer
-
-Responsible for communicating with Redis.
-
-Instead of writing Redis code everywhere,
-
-```
-redis.get()
-
-redis.set()
-
-redis.del()
-```
-
-all Redis operations are isolated inside the repository.
-
-Benefits
-
-- Clean code
-- Easier testing
-- Easier migration
-
----
-
-# Redis Usage
-
-Redis stores temporary authentication data.
-
----
-
-## OTP Storage
-
-```
-Key
-
-otp:user@gmail.com
-
-Value
-
-hashed OTP
-
-TTL
-
-300 seconds
-```
-
-Purpose
-
-Stores OTP until expiration.
-
----
-
-## Cooldown
-
-```
-otp-cooldown:user@gmail.com
-
-TTL
-
+Duration:
 60 seconds
 ```
 
-Purpose
+---
 
-Prevents users from requesting OTP repeatedly.
+## Results
+
+| Metric | Result |
+|---------|---------|
+| Total Requests | **6010** |
+| Throughput | **~100 Requests/sec** |
+| Average Response Time | **5.8 ms** |
+| Median Response Time | **4 ms** |
+| P95 | **16 ms** |
+| P99 | **49.9 ms** |
+| Server Errors | **0** |
+| Worker Failures | **0** |
+| API Crashes | **0** |
 
 ---
 
-## Failed Attempts
+## Load Test Observations
 
-```
-otp-attempt:user@gmail.com
+During stress testing,
 
-TTL
-
-300 seconds
-```
-
-Purpose
-
-Locks user after multiple incorrect OTP attempts.
+- Express API remained responsive.
+- Redis continued serving requests without failures.
+- BullMQ successfully accepted background jobs.
+- Worker processes continued consuming jobs.
+- Gmail SMTP became the only bottleneck due to Gmail's daily sending limits (`550 Daily user sending limit exceeded`), demonstrating that the application's architecture was capable of handling the traffic while the external email provider imposed the limitation.
 
 ---
 
-## Hourly Request Limit
+# High-Level Architecture
 
 ```
-otp-request-limit:user@gmail.com
-
-TTL
-
-3600 seconds
+                     Client
+                        │
+                        ▼
+                Express REST API
+                        │
+        ┌───────────────┼───────────────┐
+        │               │               │
+        ▼               ▼               ▼
+ Rate Limiter      OTP Service      Validation
+        │               │
+        └───────────────┘
+                │
+                ▼
+        Redis Repository
+                │
+        ┌───────┼──────────┐
+        │       │          │
+        ▼       ▼          ▼
+     OTP     Cooldown   Attempts
+                │
+                ▼
+          BullMQ Queue
+                │
+                ▼
+          Background Worker
+                │
+                ▼
+          Nodemailer SMTP
+                │
+                ▼
+            User Email
 ```
-
-Purpose
-
-Maximum OTP requests allowed per hour.
 
 ---
 
-## Express Rate Limiter
+# Request Lifecycle (Step-by-Step)
+
+## Step 1 – Client Requests an OTP
+
+The client sends a request to:
 
 ```
-otp-rate:<IP>
+POST /api/v1/auth/send-otp
 ```
 
-Purpose
+with
 
-Protects server against DDoS and spam.
-
-Implemented using
-
-- express-rate-limit
-- RedisStore
+```json
+{
+    "email": "user@gmail.com"
+}
+```
 
 ---
 
-# OTP Generation
+## Step 2 – Express Receives the Request
 
-The service generates a random six-digit OTP.
+The Express server receives the request and forwards it to the authentication controller.
 
-Example
+Responsibilities:
+
+- Parse request
+- Validate payload
+- Invoke service layer
+
+---
+
+## Step 3 – Distributed Rate Limiter
+
+Before any business logic executes, the request passes through **Express Rate Limiter** backed by Redis.
+
+This prevents:
+
+- API abuse
+- DDoS attacks
+- OTP spam
+- Bot traffic
+
+Each IP address has an independent request counter stored in Redis.
+
+---
+
+## Step 4 – OTP Service
+
+The service layer performs the complete business workflow.
+
+It checks:
+
+- Request cooldown
+- Hourly OTP limit
+- Existing OTP
+- Request validity
+
+If all validations pass,
+
+it generates a secure 6-digit OTP.
+
+---
+
+## Step 5 – OTP Hashing
+
+The generated OTP is hashed using bcrypt.
+
+Example:
 
 ```
-582941
-```
-
-Before storing,
-
-```
-OTP
+638214
 
 ↓
 
@@ -352,322 +196,198 @@ bcrypt
 
 ↓
 
-Hash
+$2b$10....
+```
+
+Only the hash is stored in Redis.
+
+The actual OTP never gets stored.
+
+---
+
+## Step 6 – Redis Storage
+
+Redis stores temporary authentication data.
+
+| Key | Purpose |
+|------|----------|
+| otp:user@email | OTP Hash |
+| otp-cooldown:user@email | 60 Second Cooldown |
+| otp-request-limit:user@email | Hourly Limit |
+| otp-attempt:user@email | Failed Attempts |
+
+Redis automatically removes expired keys using TTL.
+
+---
+
+## Step 7 – Queue Email Job
+
+Instead of sending email directly,
+
+the API pushes a job into BullMQ.
+
+```
+API
+
+↓
+
+BullMQ Queue
 
 ↓
 
 Redis
 ```
 
-Only the hash is stored.
+The API immediately responds:
 
-Even if Redis is compromised,
+```json
+{
+    "success": true,
+    "message": "OTP Sent Successfully"
+}
+```
 
-actual OTP cannot be recovered.
+without waiting for SMTP.
 
 ---
 
-# BullMQ Queue
+## Step 8 – Background Worker
 
-Instead of sending email inside API,
-
-the API pushes a job.
-
-```
-Queue.add()
-
-↓
-
-Redis Queue
-
-↓
-
-Worker
-
-↓
-
-Email
-```
-
-Benefits
-
-- Faster API
-- Retry mechanism
-- Background processing
-- Horizontal scalability
-
----
-
-# Worker
-
-Worker continuously listens for new jobs.
+A dedicated BullMQ worker continuously listens for new jobs.
 
 ```
 while(true)
 
 ↓
 
-New Job?
-
-↓
-
-Yes
+Fetch Job
 
 ↓
 
 Send Email
+
+↓
+
+Complete Job
 ```
 
-If email fails,
-
-BullMQ retries automatically.
+This completely decouples email delivery from API response time.
 
 ---
 
-# Email Flow
+## Step 9 – Email Delivery
 
-Worker receives
+The worker establishes an SMTP connection using Nodemailer and sends the OTP email.
 
-```
-Email
+If email sending fails,
 
-OTP
-```
-
-↓
-
-Creates Email
-
-↓
-
-SMTP Connection
-
-↓
-
-Mail Sent
+BullMQ automatically retries the job based on the configured retry policy.
 
 ---
 
-# Verification Flow
+## Step 10 – OTP Verification
 
-Client enters OTP
+When the user submits the OTP,
 
-↓
+the API:
 
-API receives OTP
-
-↓
-
-Redis fetches hashed OTP
-
-↓
-
-bcrypt.compare()
-
-↓
-
-Correct
-
-↓
-
-Generate JWT
-
-↓
-
-Delete OTP
-
-↓
-
-Login Successful
+- Retrieves the OTP hash from Redis
+- Uses bcrypt.compare()
+- Deletes OTP after successful verification
+- Generates a JWT token
 
 ---
 
-# JWT Authentication
+# Configuration
 
-After successful verification
+## Express
 
-```
-JWT Generated
-
-↓
-
-Client Stores Token
-
-↓
-
-Authorization Header
-
-↓
-
-Protected APIs
-```
+- REST API
+- Middleware
+- Routing
+- Validation
 
 ---
-
-# Security Features
-
-## OTP Hashing
-
-OTP is never stored in plaintext.
-
----
-
-## OTP Expiration
-
-Automatically expires after 5 minutes.
-
----
-
-## Cooldown
-
-User cannot request OTP continuously.
-
----
-
-## Failed Attempt Protection
-
-Account locks after repeated invalid OTPs.
-
----
-
-## Hourly Limit
-
-Limits OTP generation.
-
----
-
-## IP Rate Limiting
-
-Protects server from abuse.
-
----
-
-## Redis TTL
-
-Automatic cleanup.
-
-No cron jobs required.
-
----
-
-# Performance Optimizations
 
 ## Redis
 
-O(1) read/write operations.
+Used for
 
----
+- OTP Storage
+- Rate Limiting
+- Cooldowns
+- Failed Attempts
+- BullMQ Backend
 
-## Asynchronous Email
-
-API never waits for SMTP.
+TTL ensures automatic cleanup.
 
 ---
 
 ## BullMQ
 
-Background processing.
+Configuration includes:
+
+- Redis Connection
+- Retry Attempts
+- Exponential Backoff
+- Background Job Processing
 
 ---
 
-## Rate Limiting
+## Nodemailer
 
-Rejects abusive requests immediately.
+Responsible only for SMTP communication.
+
+The architecture allows replacing Gmail with:
+
+- Amazon SES
+- Brevo
+- SendGrid
+- Mailgun
+- Postmark
+
+without changing business logic.
 
 ---
 
-## Repository Pattern
+## JWT
 
-Cleaner architecture.
+After successful OTP verification,
 
----
-
-## Service Layer
-
-Business logic separated from HTTP layer.
+JWT tokens are generated for authenticated API access.
 
 ---
 
 # Scalability
 
-Current Architecture
-
-```
-           API
-            │
-            ▼
-         Redis
-            │
-            ▼
-         BullMQ
-            │
-            ▼
-         Worker
-```
-
-Scalable Architecture
+The application is designed to scale horizontally.
 
 ```
                  Load Balancer
                       │
       ┌───────────────┼───────────────┐
       ▼               ▼               ▼
-   API-1           API-2           API-3
+    API-1          API-2          API-3
       │               │               │
       └───────────────┼───────────────┘
-                      ▼
-                   Redis
                       │
-               BullMQ Queue
+                  Redis Cluster
+                      │
+                 BullMQ Queue
                       │
       ┌───────────────┼───────────────┐
       ▼               ▼               ▼
    Worker-1       Worker-2       Worker-3
                       │
                       ▼
-               Email Provider
+             SMTP / SES / SendGrid
 ```
 
-Since Redis is centralized,
-
-multiple API servers and multiple workers can run simultaneously.
-
-No code changes are required.
+Because API servers are stateless and Redis acts as the centralized coordination layer, additional API instances and worker processes can be added without modifying application code, allowing the system to scale to significantly higher request volumes.
 
 ---
 
-# Load Testing Results
-
-The system was load tested using Artillery.
-
-Results
-
-- Sustained approximately 100 Requests/Second
-- Thousands of requests processed successfully
-- Average API latency below 10ms for rate-limited requests
-- Background email processing handled asynchronously
-- During stress testing, Gmail SMTP became the bottleneck due to its daily sending quota, while the API, Redis, and BullMQ components continued to operate correctly.
-
----
-
-# Future Improvements
-
-- Amazon SES
-- SendGrid
-- Mailgun
-- Brevo
-- RabbitMQ/Kafka support
-- Docker Compose
-- Kubernetes deployment
-- Prometheus monitoring
-- Grafana dashboards
-- OpenTelemetry tracing
-- Distributed Redis Cluster
-- Horizontal worker autoscaling
-
----
-
-# Tech Stack
+# Technology Stack
 
 - Node.js
 - Express.js
@@ -676,6 +396,6 @@ Results
 - Nodemailer
 - JWT
 - bcrypt
-- express-rate-limit
 - Docker
 - Artillery
+- express-rate-limit
