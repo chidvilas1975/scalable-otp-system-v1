@@ -1,0 +1,22 @@
+config:
+  target: "http://localhost:5000"
+
+  phases:
+    - duration: 10
+      arrivalRate: 1
+      name: "warm-up"
+    - duration: 60
+      arrivalRate: 100
+      name: "sustained load" 
+
+  defaults:
+    headers:
+      Content-Type: "application/json"
+
+scenarios:
+  - name: Send OTP Request
+    flow:
+      - post:
+          url: "/api/v1/auth/send-otp"
+          json:
+            email: "loadtest{{$randomString()}}@gmail.com"
